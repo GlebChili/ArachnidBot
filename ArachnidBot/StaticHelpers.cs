@@ -6,11 +6,9 @@ namespace ArachnidBot;
 
 public static class StaticHelpers
 {
-    public readonly static Mutex UpdatesMutex;
-
     static StaticHelpers()
     {
-        UpdatesMutex = new();
+        
     }
 
     public static long GetTargetChatId(this IConfiguration config)

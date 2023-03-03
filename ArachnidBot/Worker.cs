@@ -7,6 +7,7 @@ using System.Reactive.Linq;
 using System.Reactive.Threading;
 using System.Reactive.Threading.Tasks;
 using System.Reactive.Disposables;
+using System.Collections.Concurrent;
 using TL;
 
 namespace ArachnidBot;
@@ -16,25 +17,23 @@ public class Worker : BackgroundService
     private readonly ILogger<Worker> _logger;
     private readonly IConfiguration _config;
     private readonly WTelegram.Client _telegram;
-    private readonly Subject<IObservable<Update>> _updateSubject;
-    private readonly Dictionary<long, User> _users;
-    private readonly Dictionary<long, ChatBase> _chats;
-    private readonly IObservable<Update> _updates;
+    private readonly Subject<(Update update, Dictionary<long, User> users)> _updateSubject;
+    private readonly ConcurrentDictionary<long, ChatBase> _chats;
+    private readonly IObservable<(Update update, Dictionary<long, User> users)> _updates;
     private readonly TelegramObserver _telegaObserver;
     private readonly Discord.WebSocket.DiscordSocketClient _discord;
     private readonly CompositeDisposable _disposables;
 
     public Worker(ILogger<Worker> logger, IConfiguration config, WTelegram.Client telegram,
-                  Dictionary<long, User> users, Dictionary<long, ChatBase> chats,
+                  ConcurrentDictionary<long, ChatBase> chats,
                   TelegramObserver telegaObserver, Discord.WebSocket.DiscordSocketClient discord)
     {
         _logger = logger;
         _config = config;
         _telegram = telegram;
         _updateSubject = new();
-        _users = users;
         _chats = chats;
-        _updates = _updateSubject.ObserveOn(TaskPoolScheduler.Default).Merge();
+        _updates = _updateSubject.ObserveOn(TaskPoolScheduler.Default);
         _telegaObserver = telegaObserver;
         _discord = discord;
         _disposables = new();
@@ -83,11 +82,20 @@ public class Worker : BackgroundService
         {
             if (arg is UpdatesBase updates)
             {
-                StaticHelpers.UpdatesMutex.WaitOne();
-                updates.CollectUsersChats(_users, _chats);
-                StaticHelpers.UpdatesMutex.ReleaseMutex();
+                Dictionary<long, User> users = new();
+                Dictionary<long, ChatBase> chats = new();
 
-                _updateSubject.OnNext(updates.UpdateList.ToObservable());
+                updates.CollectUsersChats(users, chats);
+
+                foreach (var p in chats)
+                {
+                    _chats[p.Key] = p.Value;
+                }
+
+                foreach (Update u in updates.UpdateList)
+                {
+                    _updateSubject.OnNext((u, users));
+                }
             }
 
             return Task.CompletedTask;
@@ -100,9 +108,7 @@ public class Worker : BackgroundService
 
         while (true)
         {
-            StaticHelpers.UpdatesMutex.WaitOne();
             bool isChatRegistered = _chats.ContainsKey(_config.GetTargetChatId());
-            StaticHelpers.UpdatesMutex.ReleaseMutex();
 
             if (isChatRegistered)
             {
@@ -116,11 +122,15 @@ public class Worker : BackgroundService
 
         _logger.LogInformation("Subscribing Telegram updates observers...");
 
-        _updates.OfType<UpdateNewMessage>()
+        _updates.Where(t => t.update is UpdateNewMessage)
+                .Select<(Update update, Dictionary<long, User> users), 
+                        (UpdateNewMessage update, Dictionary<long, User>)>
+                        (t => ((t.update as UpdateNewMessage)!, t.users))
                 .Select(x => Observable.FromAsync(async () => await _telegaObserver.NewUserMessageResponder(x)))
                 .Merge()
-                .Subscribe(_ => {return;}, 
-                           e => _logger.LogCritical("Exception occur while processing Telegram request {Ex}", e))
+                .Do(_ => {}, e => _logger.LogCritical("Critical error while processing telegram message: {E}", e))
+                .Retry()
+                .Subscribe()
                 .DisposeWith(_disposables);
 
         _logger.LogInformation("Telegram updates observers are registered");

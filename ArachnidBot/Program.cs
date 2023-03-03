@@ -7,6 +7,7 @@ using Discord.WebSocket;
 using System.Reactive;
 using System.Reactive.Linq;
 using System.Reactive.Threading.Tasks;
+using System.Collections.Concurrent;
 using ReactiveMarbles.ObservableEvents;
 using Microsoft.EntityFrameworkCore;
 
@@ -29,8 +30,7 @@ IHost host = Host.CreateDefaultBuilder(args)
             var clientUser = client.LoginBotIfNeeded(config["TELEGA_TOKEN"]).Result;
             return client;
         });
-        services.AddSingleton<Dictionary<long, TL.User>>();
-        services.AddSingleton<Dictionary<long, TL.ChatBase>>();
+        services.AddSingleton<ConcurrentDictionary<long, TL.ChatBase>>();
         services.AddSingleton<TelegramObserver>();
         services.AddSingleton<DiscordSocketClient>(s => 
         {

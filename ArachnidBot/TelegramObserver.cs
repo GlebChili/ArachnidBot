@@ -2,6 +2,7 @@ using System;
 using System.Text;
 using System.Reactive;
 using System.Linq;
+using System.Collections.Concurrent;
 using TL;
 using Discord;
 using Discord.WebSocket;
@@ -12,34 +13,33 @@ public class TelegramObserver
 {
     private readonly WTelegram.Client _telegram;
     private readonly IConfiguration _config;
-    private readonly Dictionary<long, User> _users;
-    private readonly Dictionary<long, ChatBase> _chats;
+    private readonly ConcurrentDictionary<long, ChatBase> _chats;
     private readonly DiscordSocketClient _discord;
 
     public TelegramObserver(WTelegram.Client telegram, IConfiguration config,
-                            Dictionary<long, User> users, Dictionary<long, ChatBase> chats,
+                            ConcurrentDictionary<long, ChatBase> chats,
                             DiscordSocketClient discord)
     {
         _telegram = telegram;
         _config = config;
-        _users = users;
         _chats = chats;
         _discord = discord;
     }
 
-    public async Task<Unit> NewUserMessageResponder(UpdateNewMessage nm)
+    public async Task<Unit> NewUserMessageResponder((UpdateNewMessage update, Dictionary<long, User> users) tuple)
     {
+        UpdateNewMessage nm = tuple.update;
+        Dictionary<long, User> users = tuple.users;
+
         long senderId = nm.message.Peer.ID;
         User? sender = null;
 
-        StaticHelpers.UpdatesMutex.WaitOne();
-        bool isUser = _users.ContainsKey(senderId);
+        bool isUser = users.ContainsKey(senderId);
         if (isUser)
         {
-            sender = _users[senderId];
+            sender = users[senderId];
         }
         ChatBase targetChat = _chats[_config.GetTargetChatId()];
-        StaticHelpers.UpdatesMutex.ReleaseMutex();
 
         if (isUser)
         {
