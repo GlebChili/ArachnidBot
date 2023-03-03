@@ -118,7 +118,8 @@ public class Worker : BackgroundService
             await Task.Delay(100);
         }
         
-        _logger.LogInformation("Target chat registered");
+        _logger.LogInformation("Target chat registered. Target chat name: {ChatName}",
+                               _chats[_config.GetTargetChatId()].Title);
 
         _logger.LogInformation("Subscribing Telegram updates observers...");
 
