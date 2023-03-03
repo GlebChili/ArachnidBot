@@ -15,15 +15,18 @@ public class TelegramObserver
     private readonly IConfiguration _config;
     private readonly ConcurrentDictionary<long, ChatBase> _chats;
     private readonly DiscordSocketClient _discord;
+    private readonly ILogger<TelegramObserver> _logger;
 
     public TelegramObserver(WTelegram.Client telegram, IConfiguration config,
                             ConcurrentDictionary<long, ChatBase> chats,
-                            DiscordSocketClient discord)
+                            DiscordSocketClient discord,
+                            ILogger<TelegramObserver> logger)
     {
         _telegram = telegram;
         _config = config;
         _chats = chats;
         _discord = discord;
+        _logger = logger;
     }
 
     public async Task<Unit> NewUserMessageResponder((UpdateNewMessage update, Dictionary<long, User> users) tuple)
@@ -45,6 +48,9 @@ public class TelegramObserver
         {
             if (nm.message is Message message)
             {
+                _logger.LogInformation("Processing Telegram message \"{Message}\" from user {User} (id {Id})",
+                                       message.message, sender!.MainUsername, sender.ID);
+
                 var targetGuild = _discord.GetGuild(_config.GetTargetDiscordGuild());
                 var targetRole = targetGuild.Roles.First(r => r.Id == _config.GetTargetDiscordRole());
 
@@ -55,6 +61,9 @@ public class TelegramObserver
                     $"{targetRole.Name} на сервере {targetGuild.Name}.";
 
                     await _telegram.SendMessageAsync(sender, helpText);
+
+                    _logger.LogInformation("User {User} (id {Id}) has requested help message",
+                                           sender!.MainUsername, sender!.ID);
 
                     return Unit.Default;
                 }
@@ -75,6 +84,10 @@ public class TelegramObserver
                 if (!chatUsers.ContainsKey(senderId))
                 {
                     await _telegram.SendMessageAsync(sender, "Похоже вы не состоите в закрытом Telegram чате :(");
+                    
+                    _logger.LogInformation("User {User} (id {Id}) is not member of target telegram chat",
+                                           sender!.MainUsername, sender.ID);
+
                     return Unit.Default;
                 }
 
@@ -85,6 +98,9 @@ public class TelegramObserver
                 {
                     await _telegram.SendMessageAsync(sender, "Похоже вас нет на Discord сервере или " +
                         "вы неправильно написали свой ник :(");
+
+                    _logger.LogInformation("User {User} (id {Id}) has provided non-existing or invalid " +
+                                           "Discord Guild username", sender!.MainUsername, sender!.ID);
 
                     return Unit.Default;
                 }
