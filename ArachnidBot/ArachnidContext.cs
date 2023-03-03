@@ -43,7 +43,9 @@ public class ArachnidContext : DbContext
 
 public class UserAssociation
 {
-    public long UserTelegramId { get; set; }
-    public ulong UserDiscordId { get; set; }
-    public DateTime TimeStamp { get; set; }
+    public required long UserTelegramId { get; set; }
+    public required ulong UserDiscordId { get; set; }
+    public required DateTime TimeStamp { get; set; }
+    public required string TelegramName { get; set; }
+    public required string DiscordName { get; set; }
 }

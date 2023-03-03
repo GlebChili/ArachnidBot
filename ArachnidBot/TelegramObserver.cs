@@ -6,6 +6,7 @@ using System.Collections.Concurrent;
 using TL;
 using Discord;
 using Discord.WebSocket;
+using Microsoft.EntityFrameworkCore;
 
 namespace ArachnidBot;
 
@@ -16,17 +17,20 @@ public class TelegramObserver
     private readonly ConcurrentDictionary<long, ChatBase> _chats;
     private readonly DiscordSocketClient _discord;
     private readonly ILogger<TelegramObserver> _logger;
+    private readonly IServiceProvider _services;
 
     public TelegramObserver(WTelegram.Client telegram, IConfiguration config,
                             ConcurrentDictionary<long, ChatBase> chats,
                             DiscordSocketClient discord,
-                            ILogger<TelegramObserver> logger)
+                            ILogger<TelegramObserver> logger,
+                            IServiceProvider services)
     {
         _telegram = telegram;
         _config = config;
         _chats = chats;
         _discord = discord;
         _logger = logger;
+        _services = services;
     }
 
     public async Task<Unit> NewUserMessageResponder((UpdateNewMessage update, Dictionary<long, User> users) tuple)
@@ -108,9 +112,86 @@ public class TelegramObserver
                 IGuildUser targetUser = 
                     guildUsers.First(u => (u.Username + "#" + u.Discriminator) == message.message);
 
-                await targetUser.AddRoleAsync(targetRole); 
+                using var scope = _services.CreateScope();
+                var dbcontext = scope.ServiceProvider.GetRequiredService<ArachnidContext>();
 
-                await _telegram.SendMessageAsync(sender, "Роль добавлена!");
+                if (await dbcontext.UserAssociations.AnyAsync(ua => ua.UserDiscordId == targetUser.Id))
+                {
+                    await _telegram.SendMessageAsync(sender, 
+                          $"Похоже пользователь {targetUser.Username}#{targetUser.Discriminator} " +
+                          $"уже имеет Discord-роль {targetRole.Name}");
+
+                    _logger.LogInformation("User {User} (id {Id}) asked to add the role to " +
+                                           "Discord user {DisUser}#{Discr}, but the user has the target role already",
+                                           sender!.MainUsername, sender!.ID, targetUser.Username, targetUser.Discriminator);
+
+                    return Unit.Default;
+                }
+
+                if (await dbcontext.UserAssociations.AnyAsync(ua => ua.UserTelegramId == sender.ID))
+                {
+                    UserAssociation old = await dbcontext.UserAssociations.SingleAsync
+                                                (ua => ua.UserTelegramId == sender.ID);
+                    
+                    dbcontext.UserAssociations.Remove(old);
+
+                    var oldDisUser = targetGuild.GetUser(old.UserDiscordId);
+                    if (oldDisUser is not null)
+                    {
+                        await oldDisUser.RemoveRoleAsync(targetRole);
+                    }
+
+                    UserAssociation fresh = new()
+                    {
+                        UserTelegramId = old.UserTelegramId,
+                        UserDiscordId = targetUser.Id,
+                        TimeStamp = DateTime.UtcNow,
+                        TelegramName = sender!.MainUsername,
+                        DiscordName = $"{targetUser.Username}#{targetUser.Discriminator}"
+                    };
+
+                    await dbcontext.UserAssociations.AddAsync(fresh);
+
+                    await targetUser.AddRoleAsync(targetRole);
+
+                    await dbcontext.SaveChangesAsync();
+
+                    _logger.LogInformation("User {User} (id {Id}) requested change of his Discord user " +
+                                           "from {oldDisName} (id {oldId}) to " +
+                                           "{newDisName} (id {newId})",
+                                           sender!.MainUsername, sender!.ID, old.DiscordName, old.UserDiscordId,
+                                           fresh.DiscordName, fresh.UserDiscordId);
+
+                    await _telegram.SendMessageAsync(sender, 
+                                    $"Ваш Discord пользователь изменен с {old.DiscordName} на {fresh.DiscordName}!");
+
+                    return Unit.Default;
+                }
+                else
+                {
+                    UserAssociation fresh = new()
+                    {
+                        UserTelegramId = sender!.ID,
+                        UserDiscordId = targetUser.Id,
+                        TimeStamp = DateTime.UtcNow,
+                        TelegramName = sender!.MainUsername,
+                        DiscordName = $"{targetUser.Username}#{targetUser.Discriminator}"
+                    };
+
+                    await dbcontext.UserAssociations.AddAsync(fresh);
+
+                    await targetUser.AddRoleAsync(targetRole);
+
+                    await dbcontext.SaveChangesAsync();
+
+                    _logger.LogInformation("User {User} (id {Id}) added association with Discord user " +
+                                           "{disName} (id {disId})",
+                                           sender!.MainUsername, sender!.ID, fresh.DiscordName, fresh.UserDiscordId);
+
+                    await _telegram.SendMessageAsync(sender, $"Роль успешно добавлена!");
+
+                    return Unit.Default;
+                }
             }
         }
 
