@@ -22,12 +22,17 @@ IHost host = Host.CreateDefaultBuilder(args)
         services.AddSingleton<WTelegram.Client>(s => 
         {
             IConfiguration config = s.GetRequiredService<IConfiguration>();
+
             int apiId = Int32.Parse(config["API_ID"]!);
             string apiHash = config["API_HASH"]!;
+
             var logger = s.GetRequiredService<ILogger<WTelegram.Client>>();
-            WTelegram.Helpers.Log = (_, message) => logger.LogDebug("WTelegramClient.Log: {Message}", message);
+
+            WTelegram.Helpers.Log = (severity, message) => {};
+
             var client = new WTelegram.Client(apiId, apiHash);
             var clientUser = client.LoginBotIfNeeded(config["TELEGA_TOKEN"]).Result;
+
             return client;
         });
         services.AddSingleton<ConcurrentDictionary<long, TL.ChatBase>>();
@@ -49,6 +54,7 @@ IHost host = Host.CreateDefaultBuilder(args)
             return client;
         });
         services.AddDbContext<ArachnidContext>();
+        services.AddSingleton<KeeperObserver>();
     })
     .UseSerilog((hostContext, services, logConf) =>
     {

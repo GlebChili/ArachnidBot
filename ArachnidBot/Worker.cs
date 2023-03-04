@@ -23,10 +23,12 @@ public class Worker : BackgroundService
     private readonly TelegramObserver _telegaObserver;
     private readonly Discord.WebSocket.DiscordSocketClient _discord;
     private readonly CompositeDisposable _disposables;
+    private readonly KeeperObserver _keeper;
 
     public Worker(ILogger<Worker> logger, IConfiguration config, WTelegram.Client telegram,
                   ConcurrentDictionary<long, ChatBase> chats,
-                  TelegramObserver telegaObserver, Discord.WebSocket.DiscordSocketClient discord)
+                  TelegramObserver telegaObserver, Discord.WebSocket.DiscordSocketClient discord,
+                  KeeperObserver keeper)
     {
         _logger = logger;
         _config = config;
@@ -37,11 +39,12 @@ public class Worker : BackgroundService
         _telegaObserver = telegaObserver;
         _discord = discord;
         _disposables = new();
+        _keeper = keeper;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("Starting main worker...");
+        _logger.LogInformation("Starting bot...");
 
         _logger.LogInformation("Checking Discord client...");
 
@@ -129,14 +132,31 @@ public class Worker : BackgroundService
                         (t => ((t.update as UpdateNewMessage)!, t.users))
                 .Select(x => Observable.FromAsync(async () => await _telegaObserver.NewUserMessageResponder(x)))
                 .Merge()
-                .Do(_ => {}, e => _logger.LogCritical("Critical error while processing telegram message: {E}", e))
+                .Do(_ => {}, e => _logger.LogCritical("Critical error occurred while processing telegram message: {E}", e))
                 .Retry()
                 .Subscribe()
                 .DisposeWith(_disposables);
 
         _logger.LogInformation("Telegram updates observers are registered");
 
-        _logger.LogInformation("Worker started");
+        _logger.LogInformation("Registering KeeperObserver...");
+
+        Observable.Timer(TimeSpan.FromSeconds(30))
+                  .Select(_ => Unit.Default)
+                  .ObserveOn(TaskPoolScheduler.Default)
+                  .Select(u => Observable.FromAsync(async () => await _keeper.TelegramChatSynchronize(u)))
+                  .Merge()
+                  .Select(u => Observable.FromAsync(async () => await _keeper.DiscordRolesSynchronize(u)))
+                  .Merge()
+                  .Do(_ => {}, e => _logger.LogCritical("Critical error occurred while processing keepers: {E}", e))
+                  .Retry()
+                  .Subscribe()
+                  .DisposeWith(_disposables);
+
+        _logger.LogInformation("KeeperObserver are registered");
+
+        _logger.LogInformation("Bot started");
+
         await Task.Delay(-1, stoppingToken);
     }
 
