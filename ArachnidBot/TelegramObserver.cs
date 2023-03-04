@@ -95,10 +95,19 @@ public class TelegramObserver
                     return Unit.Default;
                 }
 
-                await targetGuild.DownloadUsersAsync();
-                var guildUsers = targetGuild.Users;
+                SocketUser? checkUser;
 
-                if (!guildUsers.Any(u => (u.Username + "#" + u.Discriminator) == message.message))
+                try
+                {
+                    var split = message.message.Split("#");
+                    checkUser = _discord.GetUser(split[0], split[1]);
+                }
+                catch
+                {
+                    checkUser = null;
+                }
+
+                if (checkUser is null || targetGuild.GetUser(checkUser.Id) is null)
                 {
                     await _telegram.SendMessageAsync(sender, "Похоже вас нет на Discord сервере или " +
                         "вы неправильно написали свой ник :(");
@@ -109,8 +118,7 @@ public class TelegramObserver
                     return Unit.Default;
                 }
 
-                IGuildUser targetUser = 
-                    guildUsers.First(u => (u.Username + "#" + u.Discriminator) == message.message);
+                IGuildUser targetUser = targetGuild.GetUser(checkUser.Id);
 
                 using var scope = _services.CreateScope();
                 var dbcontext = scope.ServiceProvider.GetRequiredService<ArachnidContext>();
