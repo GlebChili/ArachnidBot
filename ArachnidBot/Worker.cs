@@ -141,7 +141,7 @@ public class Worker : BackgroundService
 
         _logger.LogInformation("Registering KeeperObserver...");
 
-        Observable.Timer(TimeSpan.FromSeconds(30))
+        Observable.Interval(TimeSpan.FromSeconds(30))
                   .Select(_ => Unit.Default)
                   .ObserveOn(TaskPoolScheduler.Default)
                   .Select(u => Observable.FromAsync(async () => await _keeper.TelegramChatSynchronize(u)))

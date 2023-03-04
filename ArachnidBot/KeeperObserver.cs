@@ -60,7 +60,7 @@ public class KeeperObserver
             {
                 usersToRemove.Add(ua);
 
-                _logger.LogInformation("User {User} (id {Id}) is mo longer member of the target chat. " + 
+                _logger.LogInformation("User {User} (id {Id}) is no longer member of the target chat. " + 
                                        "Removed from database. Their Discord user was {DisName} (id {DisId})",
                                        ua.TelegramName, ua.UserDiscordId, ua.DiscordName, ua.UserDiscordId);
             }
