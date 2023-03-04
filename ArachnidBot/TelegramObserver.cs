@@ -62,7 +62,8 @@ public class TelegramObserver
                 {
                     string helpText = $"Если вы состоите в Telegram чате {targetChat.Title}, "
                     + $"введите свой Discord ник (в формате Nick#1234), чтобы получить роль " +
-                    $"{targetRole.Name} на сервере {targetGuild.Name}.";
+                    $"{targetRole.Name} на сервере {targetGuild.Name}. " + 
+                    "Вы должны быть on-line в Discord, чтобы бот вас мог увидеть.";
 
                     await _telegram.SendMessageAsync(sender, helpText);
 
